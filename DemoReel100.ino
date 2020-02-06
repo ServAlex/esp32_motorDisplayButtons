@@ -28,8 +28,45 @@ CRGB leds[NUM_LEDS];
 #define BUTTON_1 0
 #define BUTTON_2 35
 
-int repeatStart = 500;
-int repeatPeriod = 200;
+
+/////// display includes and defines
+#include <TFT_eSPI.h>
+#include <SPI.h>
+#include "WiFi.h"
+#include <Wire.h>
+#include "esp_adc_cal.h"
+
+#ifndef TFT_DISPOFF
+#define TFT_DISPOFF 0x28
+#endif
+
+#ifndef TFT_SLPIN
+#define TFT_SLPIN   0x10
+#endif
+
+#define TFT_MOSI            19
+#define TFT_SCLK            18
+#define TFT_CS              5
+#define TFT_DC              16
+#define TFT_RST             23
+
+#define TFT_BL          4  // Display backlight control pin
+#define ADC_EN          14
+#define ADC_PIN         34
+
+TFT_eSPI tft = TFT_eSPI(135, 240); // Invoke custom library
+
+char buff[512];
+int vref = 1100;
+int btnCick = false;
+
+///////
+
+
+
+
+int repeatStart = 1000;
+int repeatPeriod = 300;
 
 // button 1
 long button1_pressStartedTime = 0;
@@ -53,23 +90,92 @@ void core0TaskCode( void * pvParameters ){
 }
 
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
+uint8_t gCurrentPatternNumber = 0; // Index number of which pattern is current
+#define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
 
-void button1PresHandler()
+// List of patterns to cycle through.  Each is defined as a separate function below.
+typedef void (*SimplePatternList[])();
+SimplePatternList gPatterns = { runner, rainbow, /*confetti,*/ sinelon, juggle, bpm };
+
+int maxBrightness = 10;
+int brightness = 0;
+int brightnessMultiplier = 28;
+
+int currentMenu = 0;
+int menuCount = 3;
+
+void button2PresHandler()
 {
-  Serial.println("b 1");
-  nextPattern();
+  //Serial.println("b 1");
+  currentMenu = ++currentMenu%menuCount;
+  report();
 }
 
 uint8_t fpsMultiplier = 1;
 
-void button2PresHandler()
+void button1PresHandler()
 {
-  fpsMultiplier = fpsMultiplier % 10 + 1;
-  Serial.println(fpsMultiplier);
+  switch (currentMenu)
+  {
+  case 0:
+    nextPattern();
+    break;
+  case 1:
+    fpsMultiplier = fpsMultiplier % 10 + 1;
+    break;
+  case 2:
+    brightness = ++brightness%maxBrightness;
+    Serial.println(brightness*brightnessMultiplier);
+    FastLED.setBrightness(brightness*brightnessMultiplier + 3);
+    break;
+  
+  default:
+    break;
+  }
+//  Serial.println(fpsMultiplier);
+  report();
+}
+
+void report()
+{
+  clearScreen();
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.drawString("Pattern " + String(gCurrentPatternNumber+1) + "/" + ARRAY_SIZE(gPatterns), tft.width() / 2, tft.height() / 2 - 30);
+  tft.drawString("Speed " + String(fpsMultiplier) + "/10", tft.width() / 2, tft.height() / 2);
+  tft.drawString("Brghts " + String(brightness+1) + "/10", tft.width() / 2, tft.height() / 2 + 30);
+  tft.fillCircle(35, tft.height()/2-30 + currentMenu*30, 3, TFT_GREEN);
+  //tft.drawCircle(35, tft.height()/2-30 + currentMenu*30, 3, TFT_GREEN);
+}
+
+void clearScreen()
+{
+  tft.fillScreen(TFT_BLACK);
+}
+
+void writeCenter(String str)
+{
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.drawString(str, tft.width() / 2, tft.height() / 2);
 }
 
 void setup() {
-  delay(3000); // 3 second delay for recovery
+
+  delay(1000);
+
+  tft.init();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextSize(2);
+//  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(0, 0);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextSize(2);
+
+  if (TFT_BL > 0) { // TFT_BL has been set in the TFT_eSPI library in the User Setup file TTGO_T_Display.h
+        pinMode(TFT_BL, OUTPUT); // Set backlight pin to output mode
+        digitalWrite(TFT_BL, TFT_BACKLIGHT_ON); // Turn backlight on. TFT_BACKLIGHT_ON has been set in the TFT_eSPI library in the User Setup file TTGO_T_Display.h
+  }
+
 
   Serial.begin(115200);
   Serial.println("Start");
@@ -77,12 +183,14 @@ void setup() {
   pinMode(BUTTON_1, INPUT_PULLUP);
   pinMode(BUTTON_2, INPUT_PULLUP);
 
-  delay(1000); // 3 second delay for recovery
+  report();
+
+  //delay(1000); // 3 second delay for recovery
   
   FastLED.addLeds<LED_TYPE,DATA_PIN,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
 
   // set master brightness control
-  FastLED.setBrightness(BRIGHTNESS);
+  FastLED.setBrightness(10);
  
    xTaskCreatePinnedToCore(
                     core0TaskCode,   // Task function.
@@ -96,11 +204,6 @@ void setup() {
 }
 
 
-// List of patterns to cycle through.  Each is defined as a separate function below.
-typedef void (*SimplePatternList[])();
-SimplePatternList gPatterns = { runner, rainbow, /*confetti,*/ sinelon, juggle, bpm };
-
-uint8_t gCurrentPatternNumber = 0; // Index number of which pattern is current
   
 void loop()
 {
@@ -115,7 +218,6 @@ void loop()
 //  EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
 }
 
-#define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
 
 void nextPattern()
 {
@@ -189,7 +291,7 @@ static inline uint8_t bitsaw8( accum88 beats_per_minute, uint8_t lowest = 0, uin
 int pos = 0;
 void runner()
 {
-  fadeToBlackBy( leds, NUM_LEDS, 80);
+  fadeToBlackBy( leds, NUM_LEDS, 60);
   leds[(pos++)%60] = CHSV(0, 0, 255);
   
   //int pos = bitsaw8(189, 0, NUM_LEDS-1 );
@@ -222,23 +324,25 @@ void readButtons()
       // been pressed before
       if(time - button1_pressStartedTime > repeatStart && time - button1_lastRepeatedTime > repeatPeriod)
       {
-        button1PresHandler();
         button1_lastRepeatedTime = time;
+        button1PresHandler();
       }
     }
     else
     {
-      button1PresHandler();
       // pressed for the first time
       button1_isPressed = true;
       button1_pressStartedTime = time;
-      button1_lastRepeatedTime = time;
+      button1_lastRepeatedTime = 0;
+      button1PresHandler();
     }
   }
   else
   {
     // button not pressed
     button1_isPressed = false;
+    button1_pressStartedTime = 0;
+    button1_lastRepeatedTime = 0;
   }
   
   if (button2Val != HIGH) 
@@ -249,22 +353,24 @@ void readButtons()
       // been pressed before
       if(time - button2_pressStartedTime > repeatStart && time - button2_lastRepeatedTime > repeatPeriod)
       {
-        button2PresHandler();
         button2_lastRepeatedTime = time;
+        button2PresHandler();
       }
     }
     else
     {
-      button2PresHandler();
       // pressed for the first time
       button2_isPressed = true;
       button2_pressStartedTime = time;
-      button2_lastRepeatedTime = time;
+      button2_lastRepeatedTime = 0;
+      button2PresHandler();
     }
   }
   else
   {
     // button not pressed
     button2_isPressed = false;
+    button2_pressStartedTime = 0;
+    button2_lastRepeatedTime = 0;
   }
 }
