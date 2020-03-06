@@ -71,6 +71,10 @@ bool button1_isPressed = false;
 long button2_pressStartedTime = 0;
 long button2_lastRepeatedTime = 0;
 bool button2_isPressed = false;
+// bothButtons
+long bothButtons_pressStartedTime = 0;
+long bothButtons_lastRepeatedTime = 0;
+bool bothButtons_isPressed = false;
 TaskHandle_t core0Task;
 
 void core0TaskCode( void * pvParameters ){
@@ -81,6 +85,7 @@ void core0TaskCode( void * pvParameters ){
   {
     delay(10);
     readButtons();
+    //report();
   } 
 }
 
@@ -95,21 +100,22 @@ int brightnessMultiplier = 28;
 int currentMenu = 0;
 int menuCount = 3;
 
-int delayAmmount = 1000;
+int delayAmmount = 200;
 int delayAmmountMax = 100000;
+int minDelayAmmount = 30;
 
 void button2PresHandler()
 {
   //Serial.println("b 1");
-  delayAmmount = ((int)(delayAmmount*1.05))%delayAmmountMax;
-  report();
+    delayAmmount = max(minDelayAmmount, ((int)(delayAmmount*1.05))%delayAmmountMax);
+    report();
 }
 
 uint8_t fpsMultiplier = 1;
 
 void button1PresHandler()
 {
-  delayAmmount = ((int)((delayAmmount)/1.05)+delayAmmountMax)%delayAmmountMax;
+  delayAmmount = max(minDelayAmmount, ((int)((delayAmmount)/1.05)+delayAmmountMax)%delayAmmountMax);
   report();
   /*
   switch (currentMenu)
@@ -130,11 +136,37 @@ void button1PresHandler()
   */
 }
 
+int mode = 2;
+
+void bothButtonsPressHandler()
+{
+    mode = ++mode%4;
+    report();
+}
+
 void report()
 {
-  clearScreen();
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.drawString("Delay " + String(delayAmmount) + "/" + String(delayAmmountMax/1000)+"k", tft.width() / 2, tft.height() / 2);
+    clearScreen();
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.drawString("Delay " + String(delayAmmount) + "/" + String(delayAmmountMax/1000)+"k", tft.width() / 2, tft.height() / 2);
+    String modeName = "";
+    switch(mode)
+    {
+        case 0:
+            modeName = "oscilate";
+            break;
+        case 1:
+            modeName = "driveWithSin";
+            break;
+        case 2:
+            modeName = "driveWithMicros";
+            break;
+        case 3:
+            modeName = "driveWithDelays";
+            break;
+    }
+
+  tft.drawString(modeName, tft.width() / 2, tft.height() / 2 + 30);
 
   //tft.drawString("Pattern " + String(gCurrentPatternNumber+1) + "/" + ARRAY_SIZE(gPatterns), tft.width() / 2, tft.height() / 2 - 30);
   //tft.drawString("Speed " + String(fpsMultiplier) + "/10", tft.width() / 2, tft.height() / 2);
@@ -199,98 +231,214 @@ void setup() {
   delay(200); 
 }
 
-
+uint64_t lastStateSwitch = 0;
+bool state = false;
   
+int swingMin = 35;
+int swingMax = 300;
+float switchDelay = 0.0064;
+uint64_t lastDelaySwitch = 0;
+int swingDir = 1;
+int swingRange = swingMax - swingMin;
+float swing = 0.f;
+
 void loop()
 {
-  //FastLED.delay(1000/(30*fpsMultiplier)); 
-  //FastLED.delay(1000/(FRAMES_PER_SECOND)); 
+    //oscilate();
+    //driveWithSin();
+    //driveWithMicros();
+    //driveWithDelays();
+    switch(mode)
+    {
+        case 0:
+            oscilate();
+            break;
+        case 1:
+            driveWithSin();
+            break;
+        case 2:
+            driveWithMicros();
+            break;
+        case 3:
+            driveWithDelays();
+            break;
+    }
+}
 
+void oscilate()
+{
+  uint64_t time = micros();
+  if(time - lastStateSwitch >= delayAmmount)
+  {
+    digitalWrite(STEP_PIN, state?HIGH:LOW);
+    state = !state;
+    lastStateSwitch = time;
+  }
+
+  if(time - lastDelaySwitch >= switchDelay*1000000)
+  {
+    float fase = sin(swing);
+    swingDir = (int)round((fase+1)/2);
+    float period = 1-abs(fase);
+    delayAmmount = (int)((period)*swingRange+swingMin);
+
+    //Serial.println(String(swingDir) + " "+String(fase) + " "+String((fase+1)/2) + " "+String(period));
+    digitalWrite(DIR_PIN, swingDir?HIGH:LOW);
+    swing+=0.1f;
+    lastDelaySwitch = time;
+  }
+}
+void driveWithSin()
+{
+  uint64_t time = micros();
+  if(time - lastStateSwitch >= delayAmmount)
+  {
+    digitalWrite(STEP_PIN, state?HIGH:LOW);
+    state = !state;
+    lastStateSwitch = time;
+  }
+  if(time - lastDelaySwitch >= switchDelay*1000000)
+  {
+    delayAmmount = (int)((sin(swing)+1)/2*swingRange + swingMin);
+    swing+=0.1f;
+    lastDelaySwitch = time;
+  }
+}
+void driveWithMicros()
+{
+  uint64_t time = micros();
+  if(time - lastStateSwitch >= delayAmmount)
+  {
+    digitalWrite(STEP_PIN, state?HIGH:LOW);
+    state = !state;
+    lastStateSwitch = time;
+  }
+}
+void driveWithDelays()
+{
   digitalWrite(STEP_PIN, HIGH);
   delayMicroseconds(delayAmmount);
   digitalWrite(STEP_PIN, LOW);
   delayMicroseconds(delayAmmount);
 }
 
-
-/*
-/// beatsin8 generates an 8-bit sine wave at a given BPM,
-///           that oscillates within a given range.
-static inline uint8_t bitsaw8( accum88 beats_per_minute, uint8_t lowest = 0, uint8_t highest = 255,
-                            uint32_t timebase = 0, uint8_t phase_offset = 0)
-{
-    uint8_t beat = beat8( beats_per_minute, timebase);
-    uint8_t rangewidth = highest - lowest;
-    uint8_t scaledbeat = scale8( beat, rangewidth);
-    uint8_t result = lowest + scaledbeat;
-    return result;
-}
-*/
-
 int pos = 0;
 
 void readButtons()
 {
-  long time = millis();
+    long time = millis();
 
-  int button1Val = digitalRead(BUTTON_1);
-  int button2Val = digitalRead(BUTTON_2);
+    int button1Val = digitalRead(BUTTON_1);
+    int button2Val = digitalRead(BUTTON_2);
 
-  if (button1Val != HIGH) 
-  {
-    // button pressed
-    if(button1_isPressed)
+    bool button1PressHappened = false;
+    bool button2PressHappened = false;
+    bool bothButtonsPressHappened = false;
+
+    if (button1Val != HIGH) 
     {
-      // been pressed before
-      if(time - button1_pressStartedTime > repeatStart && time - button1_lastRepeatedTime > repeatPeriod)
-      {
-        button1_lastRepeatedTime = time;
-        button1PresHandler();
-      }
+        // button pressed
+        if(button1_isPressed)
+        {
+        // been pressed before
+        if(time - button1_pressStartedTime > repeatStart && time - button1_lastRepeatedTime > repeatPeriod)
+        {
+            button1_lastRepeatedTime = time;
+            //button1PresHandler();
+            button1PressHappened = true;
+        }
+        }
+        else
+        {
+        // pressed for the first time
+        button1_isPressed = true;
+        button1_pressStartedTime = time;
+        button1_lastRepeatedTime = 0;
+        //button1PresHandler();
+            button1PressHappened = true;
+        }
     }
     else
     {
-      // pressed for the first time
-      button1_isPressed = true;
-      button1_pressStartedTime = time;
-      button1_lastRepeatedTime = 0;
-      button1PresHandler();
+        // button not pressed
+        button1_isPressed = false;
+        button1_pressStartedTime = 0;
+        button1_lastRepeatedTime = 0;
     }
-  }
-  else
-  {
-    // button not pressed
-    button1_isPressed = false;
-    button1_pressStartedTime = 0;
-    button1_lastRepeatedTime = 0;
-  }
-  
-  if (button2Val != HIGH) 
-  {
-    // button pressed
-    if(button2_isPressed)
+    
+    if (button2Val != HIGH) 
     {
-      // been pressed before
-      if(time - button2_pressStartedTime > repeatStart && time - button2_lastRepeatedTime > repeatPeriod)
-      {
-        button2_lastRepeatedTime = time;
-        button2PresHandler();
-      }
+        // button pressed
+        if(button2_isPressed)
+        {
+            // been pressed before
+            if(time - button2_pressStartedTime > repeatStart && time - button2_lastRepeatedTime > repeatPeriod)
+            {
+                button2_lastRepeatedTime = time;
+                //button2PresHandler();
+                button2PressHappened = true;
+            }
+        }
+        else
+        {
+        // pressed for the first time
+        button2_isPressed = true;
+        button2_pressStartedTime = time;
+        button2_lastRepeatedTime = 0;
+        //button2PresHandler();
+            button2PressHappened = true;
+        }
     }
     else
     {
-      // pressed for the first time
-      button2_isPressed = true;
-      button2_pressStartedTime = time;
-      button2_lastRepeatedTime = 0;
-      button2PresHandler();
+        // button not pressed
+        button2_isPressed = false;
+        button2_pressStartedTime = 0;
+        button2_lastRepeatedTime = 0;
     }
-  }
-  else
-  {
-    // button not pressed
-    button2_isPressed = false;
-    button2_pressStartedTime = 0;
-    button2_lastRepeatedTime = 0;
-  }
+
+    if (button1_isPressed && button2_isPressed) 
+    {
+        // button pressed
+        if(bothButtons_isPressed)
+        {
+            // been pressed before
+            if(time - bothButtons_pressStartedTime > repeatStart && time - bothButtons_lastRepeatedTime > repeatPeriod)
+            {
+                bothButtons_lastRepeatedTime = time;
+                bothButtonsPressHappened = true;
+            }
+        }
+        else
+        {
+        // pressed for the first time
+        bothButtons_isPressed = true;
+        bothButtons_pressStartedTime = time;
+        bothButtons_lastRepeatedTime = 0;
+        //button1PresHandler();
+            bothButtonsPressHappened = true;
+        }
+    }
+    else
+    {
+        // button not pressed
+        bothButtons_isPressed = false;
+        bothButtons_pressStartedTime = 0;
+        bothButtons_lastRepeatedTime = 0;
+    }
+
+
+    if(bothButtonsPressHappened)
+    {
+        bothButtonsPressHandler();
+        Serial.println(mode);
+    }
+    else
+    {
+        if(button1PressHappened)
+            button1PresHandler();
+
+        if(button2PressHappened)
+            button2PresHandler();
+    }
 }
