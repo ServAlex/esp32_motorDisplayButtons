@@ -61,7 +61,7 @@ vmot and ground near vmot + electrolytic cap (25v, 200uf) across 12v rails
 
 
 int repeatStart = 1000;
-int repeatPeriod = 100;
+int repeatPeriod = 10;
 
 // button 1
 long button1_pressStartedTime = 0;
@@ -104,8 +104,11 @@ int delayAmmount = 200;
 int delayAmmountMax = 100000;
 int minDelayAmmount = 30;
 
+float delayAmmount_float = 200;
+float delayAmmountMax_float = 350;
+float delayAmmountMin_float = 35;
 
-int mode = 2;
+int mode = 3;
 
 void bothButtonsPressHandler()
 {
@@ -135,8 +138,9 @@ void report()
             modeName = "driveWithMicros";
             break;
         case 3:
-            tft.drawString("Delay " + String(delayAmmount) + "/" + String(delayAmmountMax/1000)+"k", tft.width() / 2, tft.height() / 2);
-            modeName = "driveWithDelays";
+            tft.drawString("Delay " + String(delayAmmount_float, 3), tft.width() / 2, tft.height() / 2);
+            modeName = "driveWithMicros_float";
+            //modeName = "driveWithDelays";
             break;
     }
 
@@ -151,58 +155,57 @@ void report()
 
 void clearScreen()
 {
-  tft.fillScreen(TFT_BLACK);
+    tft.fillScreen(TFT_BLACK);
 }
 
 void writeCenter(String str)
 {
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.drawString(str, tft.width() / 2, tft.height() / 2);
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.drawString(str, tft.width() / 2, tft.height() / 2);
 }
 
-void setup() {
+void setup()
+{
+    pinMode(STEP_PIN, OUTPUT);
+    pinMode(DIR_PIN, OUTPUT);
 
-  pinMode(STEP_PIN, OUTPUT);
-  pinMode(DIR_PIN, OUTPUT);
+    digitalWrite(DIR_PIN, HIGH);
 
-  digitalWrite(DIR_PIN, HIGH);
+    delay(1000);
 
-  delay(1000);
+    tft.init();
+    tft.setRotation(1);
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextSize(2);
+  //  tft.setTextColor(TFT_WHITE);
+    tft.setCursor(0, 0);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextSize(2);
 
-  tft.init();
-  tft.setRotation(1);
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextSize(2);
-//  tft.setTextColor(TFT_WHITE);
-  tft.setCursor(0, 0);
-  tft.setTextDatum(MC_DATUM);
-  tft.setTextSize(2);
-
-  if (TFT_BL > 0) { // TFT_BL has been set in the TFT_eSPI library in the User Setup file TTGO_T_Display.h
+    if (TFT_BL > 0) { // TFT_BL has been set in the TFT_eSPI library in the User Setup file TTGO_T_Display.h
         pinMode(TFT_BL, OUTPUT); // Set backlight pin to output mode
         digitalWrite(TFT_BL, TFT_BACKLIGHT_ON); // Turn backlight on. TFT_BACKLIGHT_ON has been set in the TFT_eSPI library in the User Setup file TTGO_T_Display.h
-  }
+    }
 
+    Serial.begin(115200);
+    Serial.println("Start");
 
-  Serial.begin(115200);
-  Serial.println("Start");
+    pinMode(BUTTON_1, INPUT_PULLUP);
+    pinMode(BUTTON_2, INPUT_PULLUP);
 
-  pinMode(BUTTON_1, INPUT_PULLUP);
-  pinMode(BUTTON_2, INPUT_PULLUP);
+    report();
 
-  report();
-
-  //delay(1000); // 3 second delay for recovery
- 
-   xTaskCreatePinnedToCore(
-                    core0TaskCode,   // Task function.
-                    "core0Task",     // name of task.
-                    10000,       // Stack size of task 
-                    NULL,        // parameter of the task
-                    0,           // priority of the task 
-                    &core0Task,      // Task handle to keep track of created task 
-                    0);          // pin task to core 0 
-  delay(200); 
+    //delay(1000); // 3 second delay for recovery
+  
+    xTaskCreatePinnedToCore(
+                      core0TaskCode,   // Task function.
+                      "core0Task",     // name of task.
+                      10000,       // Stack size of task 
+                      NULL,        // parameter of the task
+                      0,           // priority of the task 
+                      &core0Task,      // Task handle to keep track of created task 
+                      0);          // pin task to core 0 
+    delay(200); 
 }
 
 uint64_t lastStateSwitch = 0;
@@ -229,8 +232,11 @@ void button2PresHandler()
         case 1:
             switchDelay = min(switchDelayMax, switchDelay*1.05f);
             break;
-        case 2: case 3:
+        case 2: 
             delayAmmount = max(minDelayAmmount, ((int)(delayAmmount*1.05))%delayAmmountMax);
+            break;
+        case 3:
+            delayAmmount_float = min(delayAmmountMax_float, delayAmmount_float+0.1f);
             break;
     }
     report();
@@ -248,8 +254,11 @@ void button1PresHandler()
         case 1:
             switchDelay = max(switchDelayMin, switchDelay/1.05f);
             break;
-        case 2: case 3:
-          delayAmmount = max(minDelayAmmount, ((int)((delayAmmount)/1.05)+delayAmmountMax)%delayAmmountMax);
+        case 2: 
+            delayAmmount = max(minDelayAmmount, ((int)((delayAmmount)/1.05)+delayAmmountMax)%delayAmmountMax);
+            break;
+        case 3:
+            delayAmmount_float = max(delayAmmountMin_float, delayAmmount_float-0.1f);
             break;
     }
   report();
@@ -274,7 +283,8 @@ void loop()
             driveWithMicros();
             break;
         case 3:
-            driveWithDelays();
+            driveWithMicros_float();
+            //driveWithDelays();
             break;
     }
 }
@@ -328,6 +338,18 @@ void driveWithMicros()
     lastStateSwitch = time;
   }
 }
+
+void driveWithMicros_float()
+{
+    uint64_t time = micros();
+    if(time - lastStateSwitch >= delayAmmount_float)
+    {
+        digitalWrite(STEP_PIN, state?HIGH:LOW);
+        state = !state;
+        lastStateSwitch = time;
+    }
+}
+/*
 void driveWithDelays()
 {
   digitalWrite(STEP_PIN, HIGH);
@@ -335,6 +357,7 @@ void driveWithDelays()
   digitalWrite(STEP_PIN, LOW);
   delayMicroseconds(delayAmmount);
 }
+*/
 
 int pos = 0;
 
