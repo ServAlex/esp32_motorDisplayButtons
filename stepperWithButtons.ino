@@ -104,37 +104,6 @@ int delayAmmount = 200;
 int delayAmmountMax = 100000;
 int minDelayAmmount = 30;
 
-void button2PresHandler()
-{
-  //Serial.println("b 1");
-    delayAmmount = max(minDelayAmmount, ((int)(delayAmmount*1.05))%delayAmmountMax);
-    report();
-}
-
-uint8_t fpsMultiplier = 1;
-
-void button1PresHandler()
-{
-  delayAmmount = max(minDelayAmmount, ((int)((delayAmmount)/1.05)+delayAmmountMax)%delayAmmountMax);
-  report();
-  /*
-  switch (currentMenu)
-  {
-  case 0:
-    break;
-  case 1:
-    break;
-  case 2:
-    //Serial.println("");
-    break;
-  
-  default:
-    break;
-  }
-//  Serial.println(fpsMultiplier);
-  report();
-  */
-}
 
 int mode = 2;
 
@@ -144,24 +113,29 @@ void bothButtonsPressHandler()
     report();
 }
 
+float switchDelay = 0.0064;
+
 void report()
 {
     clearScreen();
     tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    tft.drawString("Delay " + String(delayAmmount) + "/" + String(delayAmmountMax/1000)+"k", tft.width() / 2, tft.height() / 2);
     String modeName = "";
     switch(mode)
     {
         case 0:
+            tft.drawString("Delay " + String(switchDelay, 5), tft.width() / 2, tft.height() / 2);
             modeName = "oscilate";
             break;
         case 1:
+            tft.drawString("Delay " + String(switchDelay, 5), tft.width() / 2, tft.height() / 2);
             modeName = "driveWithSin";
             break;
         case 2:
+            tft.drawString("Delay " + String(delayAmmount) + "/" + String(delayAmmountMax/1000)+"k", tft.width() / 2, tft.height() / 2);
             modeName = "driveWithMicros";
             break;
         case 3:
+            tft.drawString("Delay " + String(delayAmmount) + "/" + String(delayAmmountMax/1000)+"k", tft.width() / 2, tft.height() / 2);
             modeName = "driveWithDelays";
             break;
     }
@@ -236,11 +210,51 @@ bool state = false;
   
 int swingMin = 35;
 int swingMax = 300;
-float switchDelay = 0.0064;
+//float switchDelay = 0.0064;
+float switchDelayMin = 0.000001;
+float switchDelayMax = 0.1;
 uint64_t lastDelaySwitch = 0;
 int swingDir = 1;
 int swingRange = swingMax - swingMin;
 float swing = 0.f;
+
+
+void button2PresHandler()
+{
+    switch(mode)
+    {
+        case 0:
+            switchDelay = min(switchDelayMax, switchDelay*1.05f);
+            break;
+        case 1:
+            switchDelay = min(switchDelayMax, switchDelay*1.05f);
+            break;
+        case 2: case 3:
+            delayAmmount = max(minDelayAmmount, ((int)(delayAmmount*1.05))%delayAmmountMax);
+            break;
+    }
+    report();
+}
+
+uint8_t fpsMultiplier = 1;
+
+void button1PresHandler()
+{
+    switch(mode)
+    {
+        case 0:
+            switchDelay = max(switchDelayMin, switchDelay/1.05f);
+            break;
+        case 1:
+            switchDelay = max(switchDelayMin, switchDelay/1.05f);
+            break;
+        case 2: case 3:
+          delayAmmount = max(minDelayAmmount, ((int)((delayAmmount)/1.05)+delayAmmountMax)%delayAmmountMax);
+            break;
+    }
+  report();
+}
+
 
 void loop()
 {
